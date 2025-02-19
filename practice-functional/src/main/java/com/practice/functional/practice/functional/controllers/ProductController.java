@@ -3,56 +3,60 @@ package com.practice.functional.practice.functional.controllers;
 import com.practice.functional.practice.functional.dto.ProductDTO;
 import com.practice.functional.practice.functional.services.ProductService;
 import jakarta.validation.Valid;
-import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.*;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
-import java.util.List;
-import java.util.Map;
 
 @Controller
 @RequestMapping("/products")
-@RequiredArgsConstructor
 public class ProductController {
 
     private final ProductService productService;
 
+    public ProductController(ProductService productService) {
+        this.productService = productService;
+    }
+
     @GetMapping
-    public List<ProductDTO> getProducts() {
+    public Flux<ProductDTO> getAllProducts() {
         return productService.getAllProducts();
     }
 
+    @GetMapping("/{id}")
+    public Mono<ResponseEntity<ProductDTO>> getProductById(@PathVariable String id) {
+        return productService.getProductById(id)
+                .map(ResponseEntity::ok)
+                .defaultIfEmpty(ResponseEntity.notFound().build());
+    }
+
     @PostMapping
-    public ResponseEntity<ProductDTO> addProduct(@Valid @RequestBody ProductDTO productDTO) {
-        ProductDTO saveProduct = productService.addProduct(productDTO);
-        return ResponseEntity.status(HttpStatus.CREATED).body(saveProduct);
+    public Mono<ResponseEntity<ProductDTO>> addProduct(@Valid @RequestBody ProductDTO productDTO) {
+        return productService.addProduct(productDTO)
+                .map(product -> ResponseEntity.status(HttpStatus.CREATED).body(product));
     }
 
-    @GetMapping("/sorted")
-    public List<ProductDTO> getSortedProducts() {
-        return productService.getSortedProducts();
+    @GetMapping("/cheap")
+    public Flux<ProductDTO> getCheapProducts() {
+        return productService.getCheapProducts();
     }
 
-    @GetMapping("/recent")
-    public List<ProductDTO> getRecentProducts(@RequestParam(defaultValue = "5") int limit) {
-        return productService.getRecentProducts(limit);
+    @GetMapping("/last")
+    public Flux<ProductDTO> getLastProducts() {
+        return productService.getLastProducts();
     }
 
-    @GetMapping("/modified")
-    public List<ProductDTO> getModifiedProducts(@RequestParam(defaultValue = "5") int limit) {
-        return productService.getModifyProducts(limit);
+    @GetMapping("/count")
+    public Mono<Integer> countProducts() {
+        return productService.countProducts();
     }
 
-    @GetMapping("/groupByPrice")
-    public Map<Double, List<ProductDTO>> groupByPrice() {
-        return productService.groupProductsByPrice();
+    @DeleteMapping("/{id}")
+    public Mono<ResponseEntity<Void>> deleteProduct(@PathVariable String id) {
+        return productService.deleteProduct(id)
+                .then(Mono.just(ResponseEntity.noContent().build()));
     }
-
-    @GetMapping("/minMax")
-    public Map<String, ProductDTO> getMinMaxPriceProducts() {
-        return productService.getMinMaxPrice();
-    }
-
 }

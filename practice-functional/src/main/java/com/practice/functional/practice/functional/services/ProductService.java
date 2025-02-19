@@ -3,21 +3,22 @@ package com.practice.functional.practice.functional.services;
 import com.practice.functional.practice.functional.dto.ProductDTO;
 import com.practice.functional.practice.functional.models.Product;
 import com.practice.functional.practice.functional.repositories.ProductRepository;
-import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
 
+import java.time.Duration;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.*;
-import java.util.stream.Collectors;
 
 @Service
-@RequiredArgsConstructor
 public class ProductService {
 
-    @Autowired
     private final ProductRepository productRepository;
+
+    public ProductService(ProductRepository productRepository) {
+        this.productRepository = productRepository;
+    }
 
     private final Supplier<List<Product>> defaultProductSupplier = () -> List.of(
             new Product(1L, "Laptop gamer", 120.00),
@@ -36,115 +37,60 @@ public class ProductService {
             new ProductDTO(product.getName(), product.getPrice());
 
 
-    // Cache con ConcurrentHashMap para evitar cosultas repetitivas
-    private final Map<Long, ProductDTO> productCache = new ConcurrentHashMap<>();
-
-    // Cola para manejar productos recientes
-    private final Queue<Product> recentProducts = new LinkedList<>();
-
-    // Mantiene productos ordenados por precio en tiempo real
-    private final NavigableSet<Product> sortProducts = new TreeSet<>(Comparator.comparing(Product::getPrice));
-
-    // Lista enlazada para historico de modificaciones
-    private final Deque<Product> modifyProducts = new LinkedList<>();
-
-    // Set para evitar productor duplicados por nombre
-    private final Set<String> uniqueProductNames = new HashSet<>();
-
-    public List<ProductDTO> getAllProducts() {
-        List<Product> products = productRepository.findAll();
-
-        if (products.isEmpty()) {
-            System.out.println("NO hay productos en la base de datos. Cargando productos de prueba...");
-            products = defaultProductSupplier.get();
-        }
-
-        return products.stream()
-                .map(this.productToDto)
-                .toList();
-    }
-
-    public ProductDTO addProduct(ProductDTO productDTO) {
-        Product product = new Product();
-        product.setName(productDTO.name());
-        product.setPrice(productDTO.price());
-
-        productRepository.save(product);
-        logProduct.accept(product);
-
-        // Agregamos el producto a las estructuras de datos
-        sortProducts.add(product);
-        recentProducts.offer(product);
-        modifyProducts.push(product);
-        productCache.putIfAbsent(product.getId(), productDTO);
-        if (recentProducts.size() > 5) {
-            recentProducts.poll();
-        }
-        return productDTO;
-    }
-
-    public List<ProductDTO> getSortedProducts() {
-        if (sortProducts.isEmpty()) {
-            sortProducts.addAll(productRepository.findAll());
-        }
-
-        return sortProducts.stream()
-                .map(this.productToDto)
-                .toList();
-    }
-
-    public List<ProductDTO> getRecentProducts(int limit) {
-        List<Product> recentList = new ArrayList<>(recentProducts);
-
-        if (recentList.isEmpty()) {
-            recentList = productRepository.findAll()
-                    .stream()
-                    .sorted(Comparator.comparing(Product::getId).reversed())
-                    .limit(limit)
-                    .toList();
-        }
-
-        return recentList.stream()
-                .map(this.productToDto)
-                .toList();
-    }
-
-    public List<ProductDTO> getModifyProducts(int limit) {
-        return modifyProducts.stream()
-                .limit(limit)
-                .map(this.productToDto)
-                .toList();
-    }
-
-    // Agrupando productos por precio
-    public Map<Double, List<ProductDTO>> groupProductsByPrice() {
-        return productRepository.findAll().stream()
-                .map(this.productToDto)
-                .collect(Collectors.groupingBy(ProductDTO::price));
-    }
-
-    // Obteniendo el max y min
-    public Map<String, ProductDTO> getMinMaxPrice() {
-        return Map.of(
-                "Min", Objects.requireNonNull(productRepository.findAll().stream()
-                        .min(Comparator.comparing(Product::getPrice))
-                        .map(this.productToDto)
-                        .orElse(null)),
-                "Max", Objects.requireNonNull(productRepository.findAll().stream()
-                        .max(Comparator.comparing(Product::getPrice))
-                        .map(this.productToDto)
-                        .orElse(null))
-        );
-    }
-
-    // Obtener los productos mas baratos
-    public List<ProductDTO> getCheapProducts() {
+    // Obtener los productos - map, defaultIfEmpty, switchIf
+    public Flux<ProductDTO> getAllProducts() {
         return productRepository.findAll()
-                .stream()
-                .filter(isCheap)
-                .map(this.productToDto)
-                .toList();
+                .map(productToDto)
+                .switchIfEmpty(Flux.fromIterable(defaultProductSupplier.get()).map(productToDto)
+                .delayElements(Duration.ofMillis(500)));
     }
 
-    // tarea hacer un metodo para evitar productos duplicados -> uniqueProductNames
+    // Obtener un producto por id - flatmap, defaultIfEmpty, doOnError
+    public Mono<ProductDTO> getProductById(String id) {
+        return productRepository.findById(id)
+                .flatMap(product -> Mono.just(productToDto.apply(product)))
+                .doOnError(error -> System.out.println("Error al buscar el producto: " + error.getMessage()))
+                .defaultIfEmpty(new ProductDTO("Producto no encontrado", 0.00));
+    }
+
+    // Agregar producto - doOnNext
+    public Mono<ProductDTO> addProduct(ProductDTO productDTO) {
+        return Mono.fromSupplier(() -> {
+            Product product = new Product();
+            product.setName(productDTO.name());
+            product.setPrice(productDTO.price());
+            productRepository.save(product);
+            return product;
+        }).doOnNext(logProduct).map(productToDto);
+    }
+
+    // Obtener los productos baratos - filter, map
+    public Flux<ProductDTO> getCheapProducts() {
+        return productRepository.findAll()
+                .filter(isCheap)
+                .map(productToDto);
+    }
+
+    // Obtener los ultimos 3 agregados - take
+    public Flux<ProductDTO> getLastProducts() {
+        return productRepository.findAll()
+                .take(3)
+                .map(productToDto);
+    }
+
+    // Eliminar por id - doOnError
+    public Mono<Void> deleteProduct(String id) {
+        return productRepository.findById(id)
+                .flatMap(product -> productRepository.deleteById(id))
+                .doOnError(error -> System.out.println("Error al eliminar el producto " + error.getMessage()));
+    }
+
+    // Contar productos - collectList, map, doOnNext
+    public Mono<Integer> countProducts() {
+        return productRepository.findAll()
+                .collectList()
+                .map(List::size)
+                .doOnNext(count -> System.out.println("Cantidad de productos: " + count));
+    }
+
 }
