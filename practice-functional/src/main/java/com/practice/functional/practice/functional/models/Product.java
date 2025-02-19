@@ -15,14 +15,15 @@ import org.springframework.data.mongodb.core.mapping.Document;
 public class Product implements Comparable<Product> {
 
     @Id
-    private Long id;
+    private String id;
 
     private String name;
     private Double price;
 
-    public Product(Double price, String name) {
-        this.price = price;
+
+    public Product(String name, Double price) {
         this.name = name;
+        this.price = price;
     }
 
     @Override

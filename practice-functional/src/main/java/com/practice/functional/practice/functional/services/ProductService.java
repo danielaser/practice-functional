@@ -21,9 +21,9 @@ public class ProductService {
     }
 
     private final Supplier<List<Product>> defaultProductSupplier = () -> List.of(
-            new Product(1L, "Laptop gamer", 120.00),
-            new Product(2L, "Keyboard", 20.00),
-            new Product(3L, "Mouse", 12.00)
+            new Product("1L", "Laptop gamer", 120.00),
+            new Product("2L", "Keyboard", 20.00),
+            new Product("3L", "Mouse", 12.00)
     );
 
     private final Consumer<Product> logProduct =  product ->
@@ -34,7 +34,7 @@ public class ProductService {
             product.getPrice()<20.00;
 
     private final Function<Product, ProductDTO> productToDto = product ->
-            new ProductDTO(product.getName(), product.getPrice());
+            new ProductDTO(product.getId(), product.getName(), product.getPrice());
 
 
     // Obtener los productos - map, defaultIfEmpty, switchIf
@@ -50,18 +50,18 @@ public class ProductService {
         return productRepository.findById(id)
                 .flatMap(product -> Mono.just(productToDto.apply(product)))
                 .doOnError(error -> System.out.println("Error al buscar el producto: " + error.getMessage()))
-                .defaultIfEmpty(new ProductDTO("Producto no encontrado", 0.00));
+                .defaultIfEmpty(new ProductDTO("ID no encontrado","Producto no encontrado", 0.00));
     }
 
     // Agregar producto - doOnNext
     public Mono<ProductDTO> addProduct(ProductDTO productDTO) {
-        return Mono.fromSupplier(() -> {
-            Product product = new Product();
-            product.setName(productDTO.name());
-            product.setPrice(productDTO.price());
-            productRepository.save(product);
-            return product;
-        }).doOnNext(logProduct).map(productToDto);
+        Product product = new Product();
+        product.setName(productDTO.name());
+        product.setPrice(productDTO.price());
+
+        return productRepository.save(product)
+                .doOnNext(logProduct)
+                .map(savedProduct -> new ProductDTO(savedProduct.getId(), savedProduct.getName(), savedProduct.getPrice()));
     }
 
     // Obtener los productos baratos - filter, map
